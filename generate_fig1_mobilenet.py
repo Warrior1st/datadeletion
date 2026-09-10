@@ -4,12 +4,8 @@ import random
 import pickle
 import matplotlib.pyplot as plt
 
-from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10
-from torchvision.models import (
-    mobilenet_v3_small,
-    MobileNet_V3_Small_Weights,
-)
+from torchvision.models import MobileNet_V3_Small_Weights
 
 
 import src.autograd_poly as autograd_poly
@@ -17,7 +13,7 @@ import src.polys as polys
 from src.mobilenet import MobileNet
 
 # Initialize the model.
-mobile_net = MobileNet(MobileNet_V3_Small_Weights)
+mobile_net = MobileNet(MobileNet_V3_Small_Weights.DEFAULT)
 mobile_net.save("data/fig1/init.pkl")
 
 random.seed(42)
@@ -77,18 +73,18 @@ for samp in range(num_samples):
     classifier = mobile_net.init_classifier(train_dataset, downweights)
 
     # Classifier is our learning algo, train it.
-    mobile_net.train_classifier(docs[:num_steps], downweights=downweights)
-    gpt.save(f"data/fig1/model_{samp}.pkl")
+    mobile_net.train_classifier()
+    mobile_net.save(f"data/fig1/model_{samp}.pkl")
 
 # Compute estimates of log derivative norms
 estimates = []
 for samp in range(num_samples):
-    gpt = GPT(autograd_poly.Value, uchars)
-    gpt.load(f'data/fig1/model_{samp}.pkl')
+    mobile_net = MobileNet(autograd_poly.Value)
+    mobile_net.load(f'data/fig1/model_{samp}.pkl')
 
     # Choose a document to test on.
-    test_doc = docs[random.randint(0, num_steps-1)]
-    test_loss = gpt.compute_loss(test_doc).data # type: ignore
+    test_doc = mobile_net.test_dataset
+    test_loss = mobile_net.evaluate_classifier() # type: ignore
 
     derivative_mags = [abs(coeff) for coeff in test_loss.coeffs]
     est = [math.log(math.comb(num_steps + r - 1, r) ** 0.5 * mag, 2) for r, mag in enumerate(derivative_mags)]

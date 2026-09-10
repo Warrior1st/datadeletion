@@ -11,7 +11,7 @@ from torchvision.models import (
 
 import math
 
-from polys import Poly, set_degree, get_degree, solve_linear_system
+from .polys import Poly, set_degree, get_degree
 from data_deletion_experiment import WeightedRidgeObservable
 
 
@@ -166,45 +166,12 @@ class LearningAlgorithm:
 
 
 
-# --------------------------------------------------
-# Dataset
-# --------------------------------------------------
-
-transform = weights.transforms()
-
-train_dataset = CIFAR10(
-    root="./data",
-    train=True,
-    download=True,
-    transform=transform,
-)
-
-test_dataset = CIFAR10(
-    root="./data",
-    train=False,
-    download=True,
-    transform=transform,
-)
-
-# --------------------------------------------------
-# Evaluate
-# --------------------------------------------------
-
-test_loss = algorithm.evaluate(
-    test_dataset
-)
-
-print("Test loss:", test_loss)
 
 
-# --------------------------------------------------
-# Save
-# --------------------------------------------------
 
-torch.save(
-    trained_model.state_dict(),
-    "mobilenet_cifar10_weightedClean.pth",
-)
+
+
+
 
 def precompute(observable: WeightedRidgeObservable, k: int = 50):
     #the learning algorithm needs tobe somehow specified as a circuit
@@ -337,20 +304,44 @@ class MobileNet:
             10,
         )
 
+        # --------------------------------------------------
+        # Dataset
+        # --------------------------------------------------
+
+        transform = weights.transforms()
+
+        self.train_dataset = CIFAR10(
+            root="./data",
+            train=True,
+            download=True,
+            transform=transform,
+        )
+
+        self.test_dataset = CIFAR10(
+            root="./data",
+            train=False,
+            download=True,
+            transform=transform,
+        )
+
         print(f"Classifier initialized: { self.model.classifier}")
 
     def save(self, path):
-        param_vals = [p.data for p in self.params]
-        with open(path, 'wb') as file:
-            pickle.dump(param_vals, file)
-        # print(f'params saved to {path}')
+        # --------------------------------------------------
+        # Pytorches save
+        # --------------------------------------------------
+        torch.save(
+            self.model.state_dict(),
+            path,
+        )
 
 
     def load(self, path):
-        with open(path, 'rb') as file:
-            param_vals = pickle.load(file)
-        self.set_params(param_vals)
-        # print(f'params loaded from {path}')
+        state_dict = torch.load(
+            path,
+            map_location=device,
+        )
+        self.model.load_state_dict(state_dict)
 
     def init_classifier(self, train_dataset, x):
         algorithm = LearningAlgorithm(
@@ -362,8 +353,21 @@ class MobileNet:
             batch_size=64,
             learning_rate=1e-3,
         )
-        return algorithm
+        self.classifier = algorithm
+        return self.classifier
 
-    def train_classifier(classifier: LearningAlgorithm):
-        trained_model = classifier.train()
-        return trained_model
+    def train_classifier(self):
+        self.classifier.train()
+        return self.classifier
+
+    def evaluate_classifier(self):
+        # --------------------------------------------------
+        # Evaluate
+        # --------------------------------------------------
+
+        test_loss = self.classifier.evaluate(
+            self.test_dataset
+        )
+
+        print("Test loss:", test_loss)
+        return test_loss
