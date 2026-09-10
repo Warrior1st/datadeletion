@@ -1,0 +1,22 @@
+Code for the paper "[How to sketch a learning algorithm](https://arxiv.org/pdf/2604.07328)." See Section 5.2 for context.
+
+## Requirements
+
+The only requirement is `matplotlib`.
+
+```bash
+pip install matplotlib
+```
+
+## Changes from Karpathy's microgpt
+
+This implementation is taken directly from [Karpathy's microgpt](https://gist.github.com/karpathy/8627fe009c40f57531cb18360106ce95), with three changes: the code is refactored and updated to handle higher-order forward-mode automatic differentiation with polynomial ring computations, `eps_adam` is inside of the `sqrt` and increased from 1e-8 to 1e-3, and we use GELU instead of ReLU gates.
+
+## Code organization
+
+All of the code for training and forward-mode differentiation is in `src`:
+- `microgpt.py` is Karpathy's code, with the modifications above;
+- `polys.py` contains polynomial arithmetic;
+- `autograd_real.py` and `autograd_poly.py` implement automatic differentiation with float and polynomial objects, respectively.
+
+The `generate_figX.py` scripts perform the experiments, store the data (model parameters and random directions) in `data/figX/` and store the results (raw results and PNG figures) in `results/`. You can then use `figX_data_to_tikz.py` to get TikZ code for the LaTeX figures used in the paper.
