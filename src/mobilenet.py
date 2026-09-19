@@ -1,18 +1,17 @@
 import torch
 import torch.nn as nn
 import numpy as np
-import pickle
 
 from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10
 from torchvision.models import (
     mobilenet_v3_small,
 )
+from torchvision.models import MobileNet_V3_Small_Weights
+from pathlib import Path
 
-import math
 
 from .polys import Poly, set_degree, get_degree
-from data_deletion_experiment import WeightedRidgeObservable
 
 
 
@@ -45,7 +44,6 @@ class LearningAlgorithm:
         dataset,
         x,
         device,
-        num_epochs,
         batch_size=64,
         learning_rate=1e-3,
     ):
@@ -61,7 +59,6 @@ class LearningAlgorithm:
         self.x = x
 
         self.device = device
-        self.num_epochs = num_epochs
         self.batch_size = batch_size
         self.learning_rate = learning_rate
 
@@ -83,8 +80,8 @@ class LearningAlgorithm:
             lr=self.learning_rate,
         )
 
-    def train(self):
-        for epoch in range(self.num_epochs):
+    def train(self, num_epochs):
+        for epoch in range(num_epochs):
             self.model.train()
 
             running_loss = 0.0
@@ -93,9 +90,10 @@ class LearningAlgorithm:
                 images = images.to(self.device)
                 labels = labels.to(self.device)
 
-                batch_weights = self.x[indices].to(
-                    self.device
-                )
+                batch_weights = [
+                    self.x[i]
+                    for i in indices.tolist()
+                ]
 
                 self.optimizer.zero_grad()
 
@@ -108,10 +106,24 @@ class LearningAlgorithm:
                 )
 
                 # x controls the contribution of each example
-                weighted_loss = (
-                    batch_weights * losses
-                ).mean()
+                t = 1.0
 
+                weighted_loss = 0.0
+
+                for weight, loss in zip(batch_weights, losses):
+                    w = weight.eval(t)
+
+                    # Force weight to be a plain number, with no autograd history
+                    if torch.is_tensor(w):
+                        w = w.detach().cpu().item()
+                    else:
+                        w = float(np.real(w))
+
+                    weighted_loss = weighted_loss + w * loss
+
+                weighted_loss = weighted_loss / len(losses)
+
+                self.optimizer.zero_grad()
                 weighted_loss.backward()
                 self.optimizer.step()
 
@@ -122,7 +134,7 @@ class LearningAlgorithm:
             )
 
             print(
-                f"Epoch {epoch + 1}/{self.num_epochs}: "
+                f"Epoch {epoch + 1}/{num_epochs}: "
                 f"weighted training loss = "
                 f"{average_loss:.4f}"
             )
@@ -173,53 +185,53 @@ class LearningAlgorithm:
 
 
 
-def precompute(observable: WeightedRidgeObservable, k: int = 50):
-    #the learning algorithm needs tobe somehow specified as a circuit
-    #With n inputs and p outputs.
+# def precompute(observable: WeightedRidgeObservable, k: int = 50):
+#     #the learning algorithm needs tobe somehow specified as a circuit
+#     #With n inputs and p outputs.
 
-    #Chose the ring with s = 5
-    s = 5
-    set_degree(s)
+#     #Chose the ring with s = 5
+#     s = 5
+#     set_degree(s)
 
-    n = observable.variable_features.shape[0]
+#     n = observable.variable_features.shape[0]
 
-    # unit vectors on the complex sphere in C^n; must be complex,
-    # not real, for the estimator's moment-unbiasedness
-    rng = np.random.default_rng()
-    directions = rng.standard_normal((k, n)) + 1j * rng.standard_normal((k, n))
-    directions /= np.linalg.norm(directions, axis=1, keepdims=True)
+#     # unit vectors on the complex sphere in C^n; must be complex,
+#     # not real, for the estimator's moment-unbiasedness
+#     rng = np.random.default_rng()
+#     directions = rng.standard_normal((k, n)) + 1j * rng.standard_normal((k, n))
+#     directions /= np.linalg.norm(directions, axis=1, keepdims=True)
 
-    variable_features = observable.variable_features.detach().cpu().numpy()
-    variable_targets = observable.variable_targets.detach().cpu().numpy()
-    base_gram = observable.base_gram.detach().cpu().numpy()
-    base_rhs = observable.base_rhs.detach().cpu().numpy()
-    penalty = observable.penalty.detach().cpu().numpy()
-    base_count = observable.base_features.shape[0]
+#     variable_features = observable.variable_features.detach().cpu().numpy()
+#     variable_targets = observable.variable_targets.detach().cpu().numpy()
+#     base_gram = observable.base_gram.detach().cpu().numpy()
+#     base_rhs = observable.base_rhs.detach().cpu().numpy()
+#     penalty = observable.penalty.detach().cpu().numpy()
+#     base_count = observable.base_features.shape[0]
 
-    outputs = []
-    for psi in directions:
-        # weights(z) = 1 + z*psi: expand around x0 = 1 (all variable
-        # examples included), matching this repo's convention
-        # (EXPERIMENT.md) -- deletion moves a weight from 1 toward 0.
-        weights = np.array(
-            [Poly([1.0, psi[i]]) for i in range(n)], dtype=object
-        )
+#     outputs = []
+#     for psi in directions:
+#         # weights(z) = 1 + z*psi: expand around x0 = 1 (all variable
+#         # examples included), matching this repo's convention
+#         # (EXPERIMENT.md) -- deletion moves a weight from 1 toward 0.
+#         weights = np.array(
+#             [Poly([1.0, psi[i]]) for i in range(n)], dtype=object
+#         )
 
-        sample_count = base_count + weights.sum()
-        weighted_features = weights[:, None] * variable_features
-        weighted_targets = weights[:, None] * variable_targets
+#         sample_count = base_count + weights.sum()
+#         weighted_features = weights[:, None] * variable_features
+#         weighted_targets = weights[:, None] * variable_targets
 
-        gram = (
-            base_gram + variable_features.T @ weighted_features
-        ) / sample_count
-        rhs = (
-            base_rhs + variable_features.T @ weighted_targets
-        ) / sample_count
+#         gram = (
+#             base_gram + variable_features.T @ weighted_features
+#         ) / sample_count
+#         rhs = (
+#             base_rhs + variable_features.T @ weighted_targets
+#         ) / sample_count
 
-        theta = solve_linear_system(gram + observable.ridge * penalty, rhs)
-        outputs.append(theta)
+#         theta = solve_linear_system(gram + observable.ridge * penalty, rhs)
+#         outputs.append(theta)
 
-    return directions, outputs
+#     return directions, outputs
 
 def poly_cross_entropy(logits, label_index: int) -> Poly:
     # logits: sequence of Poly, one per class. Numerically-stabilized
@@ -231,57 +243,57 @@ def poly_cross_entropy(logits, label_index: int) -> Poly:
     return log_sum_exp - shifted[label_index]
 
 
-def predict(directions, outputs, deleted_indices, observable: WeightedRidgeObservable):
-    k, n = directions.shape
-    s = get_degree()
+# def predict(directions, outputs, deleted_indices, observable: WeightedRidgeObservable):
+#     k, n = directions.shape
+#     s = get_degree()
 
-    delta = np.zeros(n)
-    delta[list(deleted_indices)] = -1.0
+#     delta = np.zeros(n)
+#     delta[list(deleted_indices)] = -1.0
 
-    validation_features = observable.validation_features.detach().cpu().numpy()
-    validation_labels = observable.validation_labels.detach().cpu().numpy()
-    num_validation = validation_features.shape[0]
+#     validation_features = observable.validation_features.detach().cpu().numpy()
+#     validation_labels = observable.validation_labels.detach().cpu().numpy()
+#     num_validation = validation_features.shape[0]
 
-    # order_samples[r][i] = <psi_i, delta>^r * q_{i,r}, the r-th-order
-    # contribution of sketch i, before averaging across the k sketches.
-    order_samples = [[] for _ in range(s + 1)]
-    for psi, theta in zip(directions, outputs):
-        logits = validation_features @ theta  # (num_validation, num_classes) of Poly
+#     # order_samples[r][i] = <psi_i, delta>^r * q_{i,r}, the r-th-order
+#     # contribution of sketch i, before averaging across the k sketches.
+#     order_samples = [[] for _ in range(s + 1)]
+#     for psi, theta in zip(directions, outputs):
+#         logits = validation_features @ theta  # (num_validation, num_classes) of Poly
 
-        measurement = Poly(0.0)
-        for row in range(num_validation):
-            measurement = measurement + poly_cross_entropy(
-                logits[row], int(validation_labels[row])
-            )
-        measurement = measurement * (1.0 / num_validation)
+#         measurement = Poly(0.0)
+#         for row in range(num_validation):
+#             measurement = measurement + poly_cross_entropy(
+#                 logits[row], int(validation_labels[row])
+#             )
+#         measurement = measurement * (1.0 / num_validation)
 
-        # <psi, delta>, conjugate-linear in psi. Needed so this pairs
-        # against the holomorphic-in-psi sketch (precompute substituted
-        # z*psi, never psi-bar) to give a nonzero, phase-invariant
-        # expectation -- see the paper's symmetric-subspace-projector
-        # argument, Sec 3.2.
-        inner_product = np.vdot(psi, delta)
+#         # <psi, delta>, conjugate-linear in psi. Needed so this pairs
+#         # against the holomorphic-in-psi sketch (precompute substituted
+#         # z*psi, never psi-bar) to give a nonzero, phase-invariant
+#         # expectation -- see the paper's symmetric-subspace-projector
+#         # argument, Sec 3.2.
+#         inner_product = np.vdot(psi, delta)
 
-        weight = 1.0 + 0j
-        for order in range(s + 1):
-            order_samples[order].append(weight * measurement.coeffs[order])
-            weight *= inner_product
+#         weight = 1.0 + 0j
+#         for order in range(s + 1):
+#             order_samples[order].append(weight * measurement.coeffs[order])
+#             weight *= inner_product
 
-    # E[<psi,delta>^r * q_r(psi)] = T_r[delta,...,delta] / n^(r), where
-    # n^(r) = n(n+1)...(n+r-1) is the rising factorial (verified against
-    # the known Beta(1, n-1) moments of |psi_1|^2 on the complex sphere).
-    # q_r is already a Taylor coefficient (i.e. T_r/r!), so multiplying
-    # the sample mean by n^(r)/r! recovers the r-th order Taylor term.
-    estimate = 0.0
-    rising_factorial = 1.0
-    for order in range(s + 1):
-        if order > 0:
-            rising_factorial *= (n + order - 1)
-        mean_sample = np.mean(order_samples[order])
-        taylor_term = (rising_factorial / math.factorial(order)) * mean_sample
-        estimate += taylor_term.real  # imaginary part is finite-k noise
+#     # E[<psi,delta>^r * q_r(psi)] = T_r[delta,...,delta] / n^(r), where
+#     # n^(r) = n(n+1)...(n+r-1) is the rising factorial (verified against
+#     # the known Beta(1, n-1) moments of |psi_1|^2 on the complex sphere).
+#     # q_r is already a Taylor coefficient (i.e. T_r/r!), so multiplying
+#     # the sample mean by n^(r)/r! recovers the r-th order Taylor term.
+#     estimate = 0.0
+#     rising_factorial = 1.0
+#     for order in range(s + 1):
+#         if order > 0:
+#             rising_factorial *= (n + order - 1)
+#         mean_sample = np.mean(order_samples[order])
+#         taylor_term = (rising_factorial / math.factorial(order)) * mean_sample
+#         estimate += taylor_term.real  # imaginary part is finite-k noise
 
-    return estimate
+#     return estimate
 
 class MobileNet:
     def __init__(self, weights):
@@ -330,6 +342,9 @@ class MobileNet:
         # --------------------------------------------------
         # Pytorches save
         # --------------------------------------------------
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+
         torch.save(
             self.model.state_dict(),
             path,
@@ -349,25 +364,41 @@ class MobileNet:
             dataset=train_dataset,
             x=x,
             device=device,
-            num_epochs=5,
             batch_size=64,
             learning_rate=1e-3,
         )
         self.classifier = algorithm
         return self.classifier
 
-    def train_classifier(self):
-        self.classifier.train()
+    def train_classifier(self, num_epochs):
+        self.classifier.train(num_epochs)
         return self.classifier
 
     def evaluate_classifier(self):
         # --------------------------------------------------
         # Evaluate
         # --------------------------------------------------
+        self.model.eval()
 
-        test_loss = self.classifier.evaluate(
-            self.test_dataset
-        )
+        total_loss = 0.0
+        total_samples = 0
+
+        criterion = nn.CrossEntropyLoss()
+
+        with torch.no_grad():
+            for inputs, labels in self.test_dataset:
+                inputs = inputs.unsqueeze(0).to(device)
+                labels = torch.tensor([labels], device=device)
+
+                outputs = self.model(inputs)
+                loss = criterion(outputs, labels)
+
+                batch_size = inputs.size(0)
+                total_loss += loss.item() * batch_size
+                total_samples += batch_size
+
+        test_loss = total_loss / total_samples
 
         print("Test loss:", test_loss)
         return test_loss
+

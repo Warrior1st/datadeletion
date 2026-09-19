@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 
 from torchvision.datasets import CIFAR10
 from torchvision.models import MobileNet_V3_Small_Weights
+from torch.utils.data import Subset
 
 
 import src.autograd_poly as autograd_poly
@@ -13,6 +14,7 @@ import src.polys as polys
 from src.mobilenet import MobileNet
 
 # Initialize the model.
+
 mobile_net = MobileNet(MobileNet_V3_Small_Weights.DEFAULT)
 mobile_net.save("data/fig1/init.pkl")
 
@@ -23,12 +25,11 @@ num_steps = 1000
 num_samples = 12
 
 # Load the dataset.
-#We load directly from CIFAR10
-# --------------------------------------------------
+#We load directly from CIFAR10--
 # Dataset
 # --------------------------------------------------
 
-transform = MobileNet_V3_Small_Weights.transforms()
+transform = MobileNet_V3_Small_Weights.DEFAULT.transforms()
 
 train_dataset = CIFAR10(
     root="./data",
@@ -56,37 +57,39 @@ for samp in range(num_samples):
 print("Done sampling directions.\n")
 
 # Push directions through training.
-for samp in range(num_samples):
-    print(f"Training model {samp+1:4d} / {num_samples:4d}")
+# for samp in range(num_samples):
+#     print(f"Training model {samp+1:4d} / {num_samples:4d}")
 
-    # Re-initialize the model.
-    mobile_net = MobileNet(autograd_poly.Value)
-    mobile_net.load("data/fig1/init.pkl")
+#     # Re-initialize the model.
+#     mobile_net = MobileNet(MobileNet_V3_Small_Weights.DEFAULT)
+#     mobile_net.load("data/fig1/init.pkl")
 
-    with open(f"data/fig1/direction_{samp}.pkl", "rb") as direction_file:
-        direction = pickle.load(direction_file)
+#     with open(f"data/fig1/direction_{samp}.pkl", "rb") as direction_file:
+#         direction = pickle.load(direction_file)
 
-    # Construct downweight polynomials.
-    downweights = [polys.Poly([0, direction_i]) for direction_i in direction]
+#     # Construct downweight polynomials.
+#     downweights = [polys.Poly([1, direction_i]) for direction_i in direction]
 
-    #init the classifier
-    classifier = mobile_net.init_classifier(train_dataset, downweights)
+#     #train on a 1000 subset
+#     train_subset = Subset(train_dataset, range(1000))
+#     #init the classifier
+#     classifier = mobile_net.init_classifier(train_subset, downweights)
 
-    # Classifier is our learning algo, train it.
-    mobile_net.train_classifier()
-    mobile_net.save(f"data/fig1/model_{samp}.pkl")
+#     # Classifier is our learning algo, train it.
+#     mobile_net.train_classifier(num_steps)
+#     mobile_net.save(f"data/fig1/model_{samp}.pth")
 
 # Compute estimates of log derivative norms
 estimates = []
 for samp in range(num_samples):
-    mobile_net = MobileNet(autograd_poly.Value)
-    mobile_net.load(f'data/fig1/model_{samp}.pkl')
+    mobile_net = MobileNet(MobileNet_V3_Small_Weights.DEFAULT)
+    mobile_net.load(f'data/fig1/model_{samp}.pth')
 
     # Choose a document to test on.
     test_doc = mobile_net.test_dataset
     test_loss = mobile_net.evaluate_classifier() # type: ignore
 
-    derivative_mags = [abs(coeff) for coeff in test_loss.coeffs]
+    derivative_mags = [abs(test_loss)]
     est = [math.log(math.comb(num_steps + r - 1, r) ** 0.5 * mag, 2) for r, mag in enumerate(derivative_mags)]
     estimates.append(est)
 
@@ -98,8 +101,12 @@ print("========= Results =========")
 print(estimates)
 
 degree = polys.get_degree()
-rs = list(range(1, degree + 1))
-avg_estimates = [sum(est[r] for est in estimates) / num_samples for r in rs]
+rs = list(range(len(estimates[0])))
+
+avg_estimates = [
+    sum(est[r] for est in estimates) / num_samples
+    for r in rs
+]
 
 def as_real(x, tol=1e-12):
     z = complex(x)

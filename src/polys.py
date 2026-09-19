@@ -237,3 +237,4 @@ class Poly:
         if cap < 0:
             return 0.0
         return np.polynomial.polynomial.polyval(z, self.coeffs[: cap + 1])
+        
