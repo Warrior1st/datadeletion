@@ -80,7 +80,7 @@ class LearningAlgorithm:
             lr=self.learning_rate,
         )
 
-    def train(self, num_epochs):
+    def train(self, num_epochs, t=1.0):
         for epoch in range(num_epochs):
             self.model.train()
 
@@ -106,8 +106,6 @@ class LearningAlgorithm:
                 )
 
                 # x controls the contribution of each example
-                t = 1.0
-
                 weighted_loss = 0.0
 
                 for weight, loss in zip(batch_weights, losses):
@@ -370,8 +368,8 @@ class MobileNet:
         self.classifier = algorithm
         return self.classifier
 
-    def train_classifier(self, num_epochs):
-        self.classifier.train(num_epochs)
+    def train_classifier(self, num_epochs, t=1.0):
+        self.classifier.train(num_epochs, t)
         return self.classifier
 
     def evaluate_classifier(self):
@@ -383,22 +381,28 @@ class MobileNet:
         total_loss = 0.0
         total_samples = 0
 
-        criterion = nn.CrossEntropyLoss()
+        criterion = nn.CrossEntropyLoss(reduction="sum")
+
+        test_loader = DataLoader(
+            self.test_dataset,
+            batch_size=128,
+            shuffle=False
+        )
 
         with torch.no_grad():
-            for inputs, labels in self.test_dataset:
-                inputs = inputs.unsqueeze(0).to(device)
-                labels = torch.tensor([labels], device=device)
+            for inputs, labels in test_loader:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
 
                 outputs = self.model(inputs)
                 loss = criterion(outputs, labels)
 
-                batch_size = inputs.size(0)
-                total_loss += loss.item() * batch_size
-                total_samples += batch_size
+                total_loss += loss.item()
+                total_samples += labels.size(0)
 
         test_loss = total_loss / total_samples
 
-        print("Test loss:", test_loss)
+        print(f"Test loss: {test_loss:.10f}")
+
         return test_loss
 

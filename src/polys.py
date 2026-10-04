@@ -2,6 +2,7 @@
 ### Poly takes the place of float.
 import math
 import numpy as np
+import torch
 
 DEFAULT_DEGREE = 3
 degree = DEFAULT_DEGREE
@@ -74,6 +75,11 @@ class Poly:
     def __mul__(self, other):
         if isinstance(other, Poly):
             out = np.convolve(self.coeffs, other.coeffs)[: self.coeffs.size]
+        elif torch.is_tensor(other):
+            out = np.array(
+                [other * coeff for coeff in self.coeffs],
+                dtype=object
+            )
         else:
             out = self.coeffs * self._coerce_scalar(other)
         return Poly._from_coeffs(out)
